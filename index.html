@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Generador de SFZ desde carpeta WAV</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f7fb;
+      --panel: #ffffff;
+      --text: #1c2430;
+      --muted: #5f6b7a;
+      --ok: #0f7a3a;
+      --warn: #a56600;
+      --error: #a30f2d;
+      --accent: #2455d6;
+      --border: #d7deea;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f141d;
+        --panel: #171e29;
+        --text: #e8edf7;
+        --muted: #a6b2c4;
+        --ok: #67dd92;
+        --warn: #ffd479;
+        --error: #ff9fb1;
+        --accent: #86a8ff;
+        --border: #2f3a4d;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, Segoe UI, Roboto, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    main {
+      max-width: 1000px;
+      margin: 2rem auto;
+      padding: 0 1rem 2rem;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+    }
+
+    h1 { margin: 0 0 .5rem; font-size: 1.6rem; }
+    p { margin: .4rem 0; color: var(--muted); }
+
+    .controls {
+      display: grid;
+      gap: .75rem;
+      grid-template-columns: 1fr;
+      align-items: center;
+    }
+
+    @media (min-width: 760px) {
+      .controls {
+        grid-template-columns: auto auto 1fr auto;
+      }
+    }
+
+    button {
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      padding: .65rem .9rem;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    button:hover { border-color: var(--accent); }
+    button:disabled {
+      opacity: .55;
+      cursor: not-allowed;
+    }
+
+    .primary {
+      background: var(--accent);
+      color: white;
+      border-color: var(--accent);
+    }
+
+    .status {
+      font-size: .95rem;
+      margin-top: .5rem;
+      white-space: pre-wrap;
+    }
+
+    .status.ok { color: var(--ok); }
+    .status.warn { color: var(--warn); }
+    .status.error { color: var(--error); }
+
+    pre {
+      margin: 0;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: color-mix(in oklab, var(--panel), black 5%);
+      padding: .9rem;
+      min-height: 220px;
+      overflow: auto;
+      font-size: .88rem;
+    }
+
+    ul {
+      margin: .3rem 0 0;
+      padding-left: 1.2rem;
+      color: var(--muted);
+    }
+
+    .small {
+      font-size: .85rem;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="panel">
+      <h1>Generador de SFZ desde carpetas WAV</h1>
+      <p>Selecciona una carpeta raíz con subcarpetas de articulaciones. Cada subcarpeta de primer nivel se convierte en un <code>&lt;group&gt;</code> con keyswitch automático (desde C2 / MIDI 36).</p>
+      <div class="controls">
+        <label for="folderInput"><strong>Carpeta de muestras</strong></label>
+        <input id="folderInput" type="file" webkitdirectory multiple />
+        <button id="generateBtn" class="primary" type="button">Generate SFZ</button>
+        <button id="downloadBtn" type="button" disabled>Descargar instrument.sfz</button>
+      </div>
+      <div id="status" class="status" aria-live="polite"></div>
+      <div id="articulationBlock" hidden>
+        <p><strong>Articulaciones detectadas</strong></p>
+        <ul id="articulationList"></ul>
+      </div>
+    </section>
+
+    <section class="panel">
+      <p><strong>Vista previa SFZ</strong></p>
+      <pre id="preview" aria-label="Vista previa del SFZ">Aún no se generó contenido.</pre>
+      <p class="small">Nota: se ignoran archivos sin nota válida en su nombre (ej.: C3, D#4, A#5).</p>
+    </section>
+  </main>
+
+  <script>
+    const NOTE_OFFSETS = {
+      C: 0,
+      'C#': 1,
+      D: 2,
+      'D#': 3,
+      E: 4,
+      F: 5,
+      'F#': 6,
+      G: 7,
+      'G#': 8,
+      A: 9,
+      'A#': 10,
+      B: 11
+    };
+
+    const KEYSWITCH_START = 36;
+    const KEYSWITCH_END = 48;
+
+    const folderInput = document.getElementById('folderInput');
+    const generateBtn = document.getElementById('generateBtn');
+    const downloadBtn = document.getElementById('downloadBtn');
+    const statusEl = document.getElementById('status');
+    const previewEl = document.getElementById('preview');
+    const articulationBlock = document.getElementById('articulationBlock');
+    const articulationList = document.getElementById('articulationList');
+
+    let latestSfz = '';
+
+    function setStatus(message, kind = 'ok') {
+      statusEl.className = `status ${kind}`;
+      statusEl.textContent = message;
+    }
+
+    function extractNoteName(filename) {
+      const basename = filename.replace(/\.[^/.]+$/, '');
+      const match = basename.match(/(^|[^A-G])([A-Ga-g](?:#)?-?\d)(?!\d)/);
+      if (!match) return null;
+      return match[2].toUpperCase();
+    }
+
+    function noteToMidi(noteName) {
+      const noteMatch = noteName.match(/^([A-G]#?)(-?\d)$/i);
+      if (!noteMatch) return null;
+
+      const pitchClass = noteMatch[1].toUpperCase();
+      const octave = Number(noteMatch[2]);
+      if (!Object.prototype.hasOwnProperty.call(NOTE_OFFSETS, pitchClass)) return null;
+
+      const midi = (octave + 1) * 12 + NOTE_OFFSETS[pitchClass];
+      if (midi < 0 || midi > 127) return null;
+      return midi;
+    }
+
+    function midpointFloor(a, b) {
+      return Math.floor((a + b) / 2);
+    }
+
+    function buildRegions(sortedSamples) {
+      if (!sortedSamples.length) return [];
+
+      return sortedSamples.map((sample, index) => {
+        const prev = sortedSamples[index - 1];
+        const next = sortedSamples[index + 1];
+
+        const lokey = prev ? midpointFloor(prev.midi + 1, sample.midi) : sample.midi;
+        const hikey = next ? midpointFloor(sample.midi, next.midi) : sample.midi;
+
+        return {
+          path: sample.path,
+          lokey,
+          hikey,
+          pitchKeycenter: sample.midi,
+          midi: sample.midi
+        };
+      });
+    }
+
+    function normalizePath(path) {
+      return path.replace(/\\/g, '/');
+    }
+
+    function gatherGroups(files) {
+      const groups = new Map();
+      let ignoredNotWav = 0;
+      let ignoredNoNote = 0;
+
+      for (const file of files) {
+        const relPath = file.webkitRelativePath || file.name;
+        const path = normalizePath(relPath);
+        if (!/\.wav$/i.test(path)) {
+          ignoredNotWav += 1;
+          continue;
+        }
+
+        const segments = path.split('/');
+        if (segments.length < 3) {
+          ignoredNoNote += 1;
+          continue;
+        }
+
+        const articulation = segments[1];
+        const noteName = extractNoteName(file.name);
+        const midi = noteName ? noteToMidi(noteName) : null;
+        if (midi === null) {
+          ignoredNoNote += 1;
+          continue;
+        }
+
+        if (!groups.has(articulation)) groups.set(articulation, []);
+        groups.get(articulation).push({ path, midi, noteName });
+      }
+
+      const builtGroups = Array.from(groups.entries())
+        .map(([name, samples]) => ({
+          name,
+          samples: samples.sort((a, b) => a.midi - b.midi),
+        }))
+        .filter(group => group.samples.length > 0);
+
+      return { builtGroups, ignoredNotWav, ignoredNoNote };
+    }
+
+    function generateSfz(groups) {
+      const lines = [
+        '// Auto-generated by Generador de SFZ',
+        '// Place instrument.sfz in the selected root folder',
+        ''
+      ];
+
+      groups.forEach((group, index) => {
+        const swLast = KEYSWITCH_START + index;
+        lines.push('<group>');
+        lines.push(`// articulation=${group.name}`);
+        lines.push(`sw_lokey=${KEYSWITCH_START}`);
+        lines.push(`sw_hikey=${KEYSWITCH_END}`);
+        lines.push(`sw_last=${swLast}`);
+
+        const regions = buildRegions(group.samples);
+        regions.forEach(region => {
+          lines.push(`<region> sample=${region.path} lokey=${region.lokey} hikey=${region.hikey} pitch_keycenter=${region.pitchKeycenter}`);
+        });
+
+        lines.push('');
+      });
+
+      return lines.join('\n').trim() + '\n';
+    }
+
+    function renderArticulations(groups) {
+      articulationList.innerHTML = '';
+      if (!groups.length) {
+        articulationBlock.hidden = true;
+        return;
+      }
+
+      groups.forEach((group, index) => {
+        const li = document.createElement('li');
+        li.textContent = `${group.name} → keyswitch MIDI ${KEYSWITCH_START + index}`;
+        articulationList.appendChild(li);
+      });
+
+      articulationBlock.hidden = false;
+    }
+
+    function downloadContent(filename, content) {
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    generateBtn.addEventListener('click', () => {
+      const files = Array.from(folderInput.files || []);
+      if (!files.length) {
+        setStatus('Primero debes seleccionar una carpeta con muestras WAV.', 'error');
+        return;
+      }
+
+      const { builtGroups, ignoredNotWav, ignoredNoNote } = gatherGroups(files);
+
+      if (!builtGroups.length) {
+        previewEl.textContent = 'No se encontraron muestras WAV válidas con nota en el nombre.';
+        latestSfz = '';
+        downloadBtn.disabled = true;
+        renderArticulations([]);
+        setStatus('No hay material válido para construir el SFZ.', 'error');
+        return;
+      }
+
+      const maxGroups = KEYSWITCH_END - KEYSWITCH_START + 1;
+      const groups = builtGroups.slice(0, maxGroups);
+      if (builtGroups.length > maxGroups) {
+        setStatus(`Se detectaron ${builtGroups.length} articulaciones; solo se usarán las primeras ${maxGroups} por rango de keyswitch (36-48).`, 'warn');
+      } else {
+        setStatus('SFZ generado correctamente.', 'ok');
+      }
+
+      latestSfz = generateSfz(groups);
+      previewEl.textContent = latestSfz;
+      downloadBtn.disabled = false;
+      renderArticulations(groups);
+
+      const summary = [
+        `Articulaciones válidas: ${groups.length}`,
+        `WAV ignorados por falta de nota: ${ignoredNoNote}`,
+        `No-WAV ignorados: ${ignoredNotWav}`
+      ];
+
+      statusEl.textContent = `${statusEl.textContent}\n${summary.join('\n')}`;
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      if (!latestSfz) return;
+      downloadContent('instrument.sfz', latestSfz);
+    });
+  </script>
+</body>
+</html>
