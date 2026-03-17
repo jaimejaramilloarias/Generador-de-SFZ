@@ -66,7 +66,7 @@
 
 ## Fase 9 — Opcionales de valor
 - [x] Mostrar en UI lista de articulaciones detectadas.
-- [ ] Permitir reordenar articulaciones para cambiar orden de keyswitches.
+- [x] Permitir reordenar articulaciones para cambiar orden de keyswitches.
 
 ## Fase 10 — Validación final y entrega
 - [ ] Revisión manual del SFZ en Sforzando.
