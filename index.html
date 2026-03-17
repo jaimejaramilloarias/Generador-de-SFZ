@@ -286,17 +286,6 @@
       return cleanedPath;
     }
 
-    function buildExportFileName(files) {
-      if (!files.length) return 'instrument.sfz';
-
-      const firstPath = normalizePath(files[0].webkitRelativePath || '');
-      const rootFolder = firstPath.split('/')[0] || '';
-      const safeName = rootFolder.replace(/[<>:"/\\|?*]+/g, '').trim();
-
-      if (!safeName) return 'instrument.sfz';
-      return `${safeName}.sfz`;
-    }
-
     function gatherGroups(files) {
       const groups = new Map();
       let ignoredNotWav = 0;
