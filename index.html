@@ -239,28 +239,83 @@
       return midi;
     }
 
-    function midpointFloor(a, b) {
-      return Math.floor((a + b) / 2);
+    const DEBUG_MAPPING = false;
+
+    function mapNotesToSamples(sortedSamples) {
+      if (!sortedSamples.length) return [];
+
+      const minNote = sortedSamples[0].midi;
+      const maxNote = sortedSamples[sortedSamples.length - 1].midi;
+      const mapping = [];
+
+      for (let note = minNote; note <= maxNote; note += 1) {
+        let nearestSample = sortedSamples[0];
+        let nearestDistance = Math.abs(note - nearestSample.midi);
+
+        for (let i = 1; i < sortedSamples.length; i += 1) {
+          const candidate = sortedSamples[i];
+          const distance = Math.abs(note - candidate.midi);
+
+          if (distance < nearestDistance) {
+            nearestSample = candidate;
+            nearestDistance = distance;
+          }
+        }
+
+        mapping.push({
+          note,
+          samplePath: nearestSample.path,
+          sampleMidi: nearestSample.midi
+        });
+      }
+
+      if (DEBUG_MAPPING) {
+        const gaps = [];
+        for (let i = 1; i < mapping.length; i += 1) {
+          if (mapping[i].note !== mapping[i - 1].note + 1) gaps.push([mapping[i - 1].note, mapping[i].note]);
+        }
+        console.table(mapping.map(entry => ({ note: entry.note, sampleMidi: entry.sampleMidi, samplePath: entry.samplePath })));
+        console.log('[SFZ mapping] minNote:', minNote, 'maxNote:', maxNote, 'gaps:', gaps.length);
+      }
+
+      return mapping;
+    }
+
+    function buildRegionsFromMapping(mapping) {
+      if (!mapping.length) return [];
+
+      const regions = [];
+      let current = {
+        path: mapping[0].samplePath,
+        lokey: mapping[0].note,
+        hikey: mapping[0].note,
+        pitchKeycenter: mapping[0].sampleMidi,
+      };
+
+      for (let i = 1; i < mapping.length; i += 1) {
+        const entry = mapping[i];
+        const sameSample = entry.samplePath === current.path && entry.sampleMidi === current.pitchKeycenter;
+
+        if (sameSample) {
+          current.hikey = entry.note;
+        } else {
+          regions.push(current);
+          current = {
+            path: entry.samplePath,
+            lokey: entry.note,
+            hikey: entry.note,
+            pitchKeycenter: entry.sampleMidi,
+          };
+        }
+      }
+
+      regions.push(current);
+      return regions;
     }
 
     function buildRegions(sortedSamples) {
-      if (!sortedSamples.length) return [];
-
-      return sortedSamples.map((sample, index) => {
-        const prev = sortedSamples[index - 1];
-        const next = sortedSamples[index + 1];
-
-        const lokey = prev ? midpointFloor(prev.midi + 1, sample.midi) : sample.midi;
-        const hikey = next ? midpointFloor(sample.midi, next.midi) : sample.midi;
-
-        return {
-          path: sample.path,
-          lokey,
-          hikey,
-          pitchKeycenter: sample.midi,
-          midi: sample.midi
-        };
-      });
+      const mapping = mapNotesToSamples(sortedSamples);
+      return buildRegionsFromMapping(mapping);
     }
 
     function normalizePath(path) {
