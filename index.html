@@ -210,6 +210,7 @@
     const articulationList = document.getElementById('articulationList');
 
     let latestSfz = '';
+    let latestExportName = 'instrument.sfz';
     let currentGroups = [];
     let latestStats = { ignoredNotWav: 0, ignoredNoNote: 0, trimmedGroups: 0, totalGroups: 0 };
 
@@ -266,6 +267,36 @@
       return path.replace(/\\/g, '/');
     }
 
+    function getRelativeSamplePath(path) {
+      const normalizedPath = normalizePath(path);
+      const segments = normalizedPath.split('/');
+      const cleanedPath = segments.slice(1).join('/');
+
+      console.log('[SFZ path] original:', normalizedPath);
+      console.log('[SFZ path] cleaned:', cleanedPath);
+
+      if (!cleanedPath || cleanedPath === normalizedPath) {
+        console.warn('[SFZ path] Could not remove top-level folder:', normalizedPath);
+      }
+
+      if (segments[0] && cleanedPath.startsWith(`${segments[0]}/`)) {
+        console.error('[SFZ path] Duplicated top-level folder detected:', normalizedPath, '=>', cleanedPath);
+      }
+
+      return cleanedPath;
+    }
+
+    function buildExportFileName(files) {
+      if (!files.length) return 'instrument.sfz';
+
+      const firstPath = normalizePath(files[0].webkitRelativePath || '');
+      const rootFolder = firstPath.split('/')[0] || '';
+      const safeName = rootFolder.replace(/[<>:"/\\|?*]+/g, '').trim();
+
+      if (!safeName) return 'instrument.sfz';
+      return `${safeName}.sfz`;
+    }
+
     function gatherGroups(files) {
       const groups = new Map();
       let ignoredNotWav = 0;
@@ -294,7 +325,7 @@
         }
 
         if (!groups.has(articulation)) groups.set(articulation, []);
-        groups.get(articulation).push({ path, midi, noteName });
+        groups.get(articulation).push({ path: getRelativeSamplePath(path), midi, noteName });
       }
 
       const builtGroups = Array.from(groups.entries())
@@ -424,6 +455,11 @@
         return;
       }
 
+      const resolveExportFileName = typeof buildExportFileName === 'function'
+        ? buildExportFileName
+        : () => 'instrument.sfz';
+      latestExportName = resolveExportFileName(files);
+
       const { builtGroups, ignoredNotWav, ignoredNoNote } = gatherGroups(files);
 
       if (!builtGroups.length) {
@@ -450,7 +486,7 @@
 
     downloadBtn.addEventListener('click', () => {
       if (!latestSfz) return;
-      downloadContent('instrument.sfz', latestSfz);
+      downloadContent(latestExportName, latestSfz);
     });
   </script>
 </body>
