@@ -121,6 +121,35 @@
       color: var(--muted);
     }
 
+    .reorder-list {
+      list-style: none;
+      padding-left: 0;
+      margin-top: .5rem;
+      display: grid;
+      gap: .35rem;
+    }
+
+    .reorder-item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: .5rem;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: .45rem .6rem;
+      background: color-mix(in oklab, var(--panel), black 3%);
+    }
+
+    .reorder-actions {
+      display: flex;
+      gap: .35rem;
+    }
+
+    .icon-btn {
+      padding: .35rem .5rem;
+      min-width: 2.2rem;
+    }
+
     .small {
       font-size: .85rem;
       color: var(--muted);
@@ -141,7 +170,8 @@
       <div id="status" class="status" aria-live="polite"></div>
       <div id="articulationBlock" hidden>
         <p><strong>Articulaciones detectadas</strong></p>
-        <ul id="articulationList"></ul>
+        <p class="small">Puedes reordenarlas para cambiar el orden de keyswitches antes de descargar el SFZ.</p>
+        <ul id="articulationList" class="reorder-list"></ul>
       </div>
     </section>
 
@@ -180,6 +210,8 @@
     const articulationList = document.getElementById('articulationList');
 
     let latestSfz = '';
+    let currentGroups = [];
+    let latestStats = { ignoredNotWav: 0, ignoredNoNote: 0, trimmedGroups: 0, totalGroups: 0 };
 
     function setStatus(message, kind = 'ok') {
       statusEl.className = `status ${kind}`;
@@ -301,6 +333,13 @@
       return lines.join('\n').trim() + '\n';
     }
 
+    function moveGroup(from, to) {
+      const [moved] = currentGroups.splice(from, 1);
+      currentGroups.splice(to, 0, moved);
+      renderArticulations(currentGroups);
+      regenerateFromCurrentGroups();
+    }
+
     function renderArticulations(groups) {
       articulationList.innerHTML = '';
       if (!groups.length) {
@@ -310,7 +349,34 @@
 
       groups.forEach((group, index) => {
         const li = document.createElement('li');
-        li.textContent = `${group.name} → keyswitch MIDI ${KEYSWITCH_START + index}`;
+        li.className = 'reorder-item';
+
+        const label = document.createElement('span');
+        label.textContent = `${group.name} → keyswitch MIDI ${KEYSWITCH_START + index}`;
+
+        const actions = document.createElement('div');
+        actions.className = 'reorder-actions';
+
+        const upBtn = document.createElement('button');
+        upBtn.type = 'button';
+        upBtn.className = 'icon-btn';
+        upBtn.textContent = '↑';
+        upBtn.title = `Mover ${group.name} arriba`;
+        upBtn.disabled = index === 0;
+        upBtn.addEventListener('click', () => moveGroup(index, index - 1));
+
+        const downBtn = document.createElement('button');
+        downBtn.type = 'button';
+        downBtn.className = 'icon-btn';
+        downBtn.textContent = '↓';
+        downBtn.title = `Mover ${group.name} abajo`;
+        downBtn.disabled = index === groups.length - 1;
+        downBtn.addEventListener('click', () => moveGroup(index, index + 1));
+
+        actions.appendChild(upBtn);
+        actions.appendChild(downBtn);
+        li.appendChild(label);
+        li.appendChild(actions);
         articulationList.appendChild(li);
       });
 
@@ -327,6 +393,28 @@
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
+    }
+
+    function regenerateFromCurrentGroups() {
+      if (!currentGroups.length) return;
+
+      latestSfz = generateSfz(currentGroups);
+      previewEl.textContent = latestSfz;
+      downloadBtn.disabled = false;
+
+      const summary = [
+        `Articulaciones válidas: ${currentGroups.length}`,
+        `WAV ignorados por falta de nota: ${latestStats.ignoredNoNote}`,
+        `No-WAV ignorados: ${latestStats.ignoredNotWav}`
+      ];
+
+      if (latestStats.trimmedGroups > 0) {
+        setStatus(`Se detectaron ${latestStats.totalGroups} articulaciones; solo se usan ${currentGroups.length} por rango de keyswitch (36-48).`, 'warn');
+      } else {
+        setStatus('SFZ generado correctamente.', 'ok');
+      }
+
+      statusEl.textContent = `${statusEl.textContent}\n${summary.join('\n')}`;
     }
 
     generateBtn.addEventListener('click', () => {
@@ -348,25 +436,16 @@
       }
 
       const maxGroups = KEYSWITCH_END - KEYSWITCH_START + 1;
-      const groups = builtGroups.slice(0, maxGroups);
-      if (builtGroups.length > maxGroups) {
-        setStatus(`Se detectaron ${builtGroups.length} articulaciones; solo se usarán las primeras ${maxGroups} por rango de keyswitch (36-48).`, 'warn');
-      } else {
-        setStatus('SFZ generado correctamente.', 'ok');
-      }
+      currentGroups = builtGroups.slice(0, maxGroups);
+      latestStats = {
+        ignoredNotWav,
+        ignoredNoNote,
+        trimmedGroups: Math.max(0, builtGroups.length - maxGroups),
+        totalGroups: builtGroups.length
+      };
 
-      latestSfz = generateSfz(groups);
-      previewEl.textContent = latestSfz;
-      downloadBtn.disabled = false;
-      renderArticulations(groups);
-
-      const summary = [
-        `Articulaciones válidas: ${groups.length}`,
-        `WAV ignorados por falta de nota: ${ignoredNoNote}`,
-        `No-WAV ignorados: ${ignoredNotWav}`
-      ];
-
-      statusEl.textContent = `${statusEl.textContent}\n${summary.join('\n')}`;
+      renderArticulations(currentGroups);
+      regenerateFromCurrentGroups();
     });
 
     downloadBtn.addEventListener('click', () => {
