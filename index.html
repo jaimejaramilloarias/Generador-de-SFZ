@@ -210,6 +210,7 @@
     const articulationList = document.getElementById('articulationList');
 
     let latestSfz = '';
+    let latestExportName = 'instrument.sfz';
     let currentGroups = [];
     let latestStats = { ignoredNotWav: 0, ignoredNoNote: 0, trimmedGroups: 0, totalGroups: 0 };
 
@@ -443,6 +444,8 @@
         return;
       }
 
+      latestExportName = buildExportFileName(files);
+
       const { builtGroups, ignoredNotWav, ignoredNoNote } = gatherGroups(files);
 
       if (!builtGroups.length) {
@@ -469,7 +472,7 @@
 
     downloadBtn.addEventListener('click', () => {
       if (!latestSfz) return;
-      downloadContent('instrument.sfz', latestSfz);
+      downloadContent(latestExportName, latestSfz);
     });
   </script>
 </body>
