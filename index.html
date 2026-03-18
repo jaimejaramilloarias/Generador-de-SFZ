@@ -160,7 +160,7 @@
   <main>
     <section class="panel">
       <h1>Generador de SFZ desde carpetas WAV</h1>
-      <p>Selecciona una carpeta raíz con subcarpetas de articulaciones. Cada subcarpeta de primer nivel se convierte en un <code>&lt;group&gt;</code> con keyswitch automático (desde C2 / MIDI 36).</p>
+      <p>Selecciona una carpeta raíz con subcarpetas de articulaciones. Cada subcarpeta de primer nivel se convierte en un <code>&lt;group&gt;</code> con keyswitch automático (desde C1 / MIDI 24).</p>
       <div class="controls">
         <label for="folderInput"><strong>Carpeta de muestras</strong></label>
         <input id="folderInput" type="file" webkitdirectory multiple />
@@ -198,8 +198,8 @@
       B: 11
     };
 
-    const KEYSWITCH_START = 36;
-    const KEYSWITCH_END = 48;
+    const KEYSWITCH_START = 24;
+    const KEYSWITCH_END = 36;
 
     const folderInput = document.getElementById('folderInput');
     const generateBtn = document.getElementById('generateBtn');
@@ -496,7 +496,7 @@
       ];
 
       if (latestStats.trimmedGroups > 0) {
-        setStatus(`Se detectaron ${latestStats.totalGroups} articulaciones; solo se usan ${currentGroups.length} por rango de keyswitch (36-48).`, 'warn');
+        setStatus(`Se detectaron ${latestStats.totalGroups} articulaciones; solo se usan ${currentGroups.length} por rango de keyswitch (24-36).`, 'warn');
       } else {
         setStatus('SFZ generado correctamente.', 'ok');
       }
